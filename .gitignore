@@ -1,14 +1,22 @@
 # ==================================================
-# Data folders (keep structure, ignore contents)
+# Data folders
+# 保留目錄結構，但忽略所有實際資料內容
 # ==================================================
-input/*
-output/*
 
-# allow directory placeholders
-!input/.gitkeep
-!output/.gitkeep
+# Ignore all files under input/output (recursive)
+input/**/*
+output/**/*
+
+# Re-allow directories themselves (so nested folders can exist)
+!input/
+!output/
+!input/**/
+!output/**/
+
+# Allow directory placeholders
 !input/**/.gitkeep
 !output/**/.gitkeep
+
 
 # ==================================================
 # Generated numeric directories (e.g. storeId)
@@ -16,8 +24,9 @@ output/*
 [0-9]*/
 */[0-9]*/
 
+
 # ==================================================
-# Data files
+# Data files (never commit real data)
 # ==================================================
 *.csv
 *.tsv
@@ -27,6 +36,7 @@ output/*
 *.json
 *.jsonl
 *.ndjson
+
 
 # ==================================================
 # Python
@@ -39,6 +49,7 @@ __pycache__/
 .venv/
 venv/
 
+
 # ==================================================
 # macOS
 # ==================================================
@@ -49,6 +60,7 @@ venv/
 .Spotlight-V100
 .Trashes
 
+
 # ==================================================
 # Editor / IDE
 # ==================================================
@@ -56,6 +68,7 @@ venv/
 .idea/
 *.swp
 *.swo
+
 
 # ==================================================
 # Logs / temp / cache
