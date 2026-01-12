@@ -19,6 +19,11 @@ def parse_args():
         required=True,
         help="Maximum allowed file count under each store directory"
     )
+    parser.add_argument(
+        "--list-all",
+        action="store_true",
+        help="List all directories with their file counts without applying limit"
+    )
     return parser.parse_args()
 
 
@@ -42,12 +47,28 @@ def verify_store_dirs(input_dir: Path, limit: int) -> int:
     return error_count
 
 
+def list_all_store_dirs(input_dir: Path):
+    for item in sorted(input_dir.rglob("*")):
+        if not item.is_dir():
+            continue
+
+        files = [f for f in item.iterdir() if f.is_file()]
+        if not files:
+            continue
+
+        print(f"{item} {len(files)}")
+
+
 def main():
     args = parse_args()
     input_dir = Path(args.input_dir)
 
     if not input_dir.exists():
         raise FileNotFoundError(f"Input directory not found: {input_dir}")
+
+    if args.list_all:
+        list_all_store_dirs(input_dir)
+        exit(0)
 
     error_count = verify_store_dirs(input_dir, args.limit_file_count)
 

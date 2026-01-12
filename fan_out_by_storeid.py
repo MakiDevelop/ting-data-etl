@@ -1,3 +1,4 @@
+STORE_ID_HEADERS = ["商店序號", "shopId", "Shop 商店序號", "ShopId"]
 #!/usr/bin/env python3
 import argparse
 import csv
@@ -18,15 +19,20 @@ def split_csv_file(path: str, name: str, output_dir: str, encoding: str):
         store_idx = None
 
         for row in reader:
-            if "商店序號" in row:
+            found_idx = None
+            for header_name in STORE_ID_HEADERS:
+                if header_name in row:
+                    found_idx = row.index(header_name)
+                    break
+            if found_idx is not None:
                 header = row
-                store_idx = row.index("商店序號")
+                store_idx = found_idx
                 break
             else:
                 prefix_rows.append(row)
 
         if header is None:
-            print(f"[warn] missing 商店序號 header, skipped: {path}")
+            print(f"[warn] missing store id header, skipped: {path}")
             return
 
         for row in reader:
