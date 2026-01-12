@@ -35,6 +35,8 @@ def split_csv_file(path: str, name: str, output_dir: str, encoding: str):
             print(f"[warn] missing store id header, skipped: {path}")
             return
 
+        written_store_ids = set()
+
         for row in reader:
             if store_idx >= len(row):
                 continue
@@ -48,6 +50,11 @@ def split_csv_file(path: str, name: str, output_dir: str, encoding: str):
                 store_id = raw_store_id
             if store_id == "":
                 continue
+            # guard against header rows or invalid store ids
+            if store_id in STORE_ID_HEADERS:
+                continue
+            if not store_id.isdigit():
+                continue
             store_dir = os.path.join(output_dir, store_id)
             os.makedirs(store_dir, exist_ok=True)
             out_path = os.path.join(store_dir, name)
@@ -59,6 +66,20 @@ def split_csv_file(path: str, name: str, output_dir: str, encoding: str):
                         writer.writerow(r)
                     writer.writerow(header)
                 writer.writerow(row)
+            written_store_ids.add(store_id)
+
+        # After processing all rows, ensure header-only CSVs for existing stores without data rows
+        for entry in os.scandir(output_dir):
+            if entry.is_dir():
+                store_id = entry.name
+                if store_id not in written_store_ids:
+                    out_path = os.path.join(output_dir, store_id, name)
+                    if not os.path.exists(out_path):
+                        with open(out_path, "w", newline="", encoding=encoding) as out_f:
+                            writer = csv.writer(out_f)
+                            for r in prefix_rows:
+                                writer.writerow(r)
+                            writer.writerow(header)
 
 
 def parse_args():

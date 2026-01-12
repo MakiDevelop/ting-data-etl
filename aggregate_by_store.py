@@ -2,12 +2,49 @@ import argparse
 import pandas as pd
 from pathlib import Path
 
+
 # ===============================
 # Global Paths
 # ===============================
 INPUT_DIR = Path("./input")
 AGGREGATE_INPUT_DIR = INPUT_DIR / "aggregate"
 OUTPUT_DIR = Path("./output")
+
+
+# ===============================
+# Store Helper Functions
+# ===============================
+def get_all_store_ids(output_dir: Path):
+    """
+    Define the store universe based on existing output directories.
+    """
+    return sorted(
+        d.name for d in output_dir.iterdir()
+        if d.is_dir()
+    )
+
+
+def write_store_csv_with_fill(
+    store_id: str,
+    output_dir: Path,
+    filename: str,
+    df: pd.DataFrame,
+    columns: list[str]
+):
+    """
+    Write per-store CSV.
+    If df is empty, write header-only CSV with specified columns.
+    """
+    store_dir = output_dir / str(store_id)
+    store_dir.mkdir(parents=True, exist_ok=True)
+
+    output_path = store_dir / filename
+
+    if df is None or df.empty:
+        empty_df = pd.DataFrame(columns=columns)
+        empty_df.to_csv(output_path, index=False, encoding="utf-8-sig")
+    else:
+        df.to_csv(output_path, index=False, encoding="utf-8-sig")
 
 # ===============================
 # Configs: 六個需求（以編號作為 key）
@@ -234,18 +271,25 @@ def run_aggregation(config_key: str):
             ]
         ]
 
-        # --- Output ---
-        for _, row in result.iterrows():
-            store_id = row["商店序號"]
-            store_dir = OUTPUT_DIR / str(store_id)
-            store_dir.mkdir(parents=True, exist_ok=True)
+        # --- Output (structure-first, fill header if no data for store) ---
+        all_store_ids = get_all_store_ids(OUTPUT_DIR)
 
-            output_path = store_dir / "23-1.區間推薦人綁定人數_門市企業方案.csv"
-            pd.DataFrame([row]).to_csv(
-                output_path, index=False, encoding="utf-8-sig"
+        expected_columns = list(result.columns)
+        grouped = {sid: g for sid, g in result.groupby("商店序號")}
+
+        for sid in all_store_ids:
+            g = grouped.get(sid)
+            out = g if g is not None else pd.DataFrame(columns=expected_columns)
+
+            write_store_csv_with_fill(
+                store_id=sid,
+                output_dir=OUTPUT_DIR,
+                filename="23-1.區間推薦人綁定人數_門市企業方案.csv",
+                df=out,
+                columns=expected_columns,
             )
 
-        print(f"[OK] config=23-1, stores={len(result)}")
+        print(f"[OK] config=23-1, stores={len(all_store_ids)}")
         return
 
     # ===== 23-2 Monthly YoY table =====
@@ -319,14 +363,32 @@ def run_aggregation(config_key: str):
 
         result["推薦人新綁定數 YoY"] = result["推薦人新綁定數 YoY"].apply(_fmt_pct)
 
-        # Output per store
-        for sid, g in result.groupby(store_col):
-            out = g[[store_col, "月份", "2024年", "2025年", "推薦人新綁定數 YoY"]].sort_values("月份")
-            store_dir = OUTPUT_DIR / str(sid)
-            store_dir.mkdir(parents=True, exist_ok=True)
-            out.to_csv(store_dir / "23-2.推薦人新綁定數.csv", index=False, encoding="utf-8-sig")
+        # Output per store (structure-first, fill header if no data for store)
+        all_store_ids = get_all_store_ids(OUTPUT_DIR)
 
-        print(f"[OK] config=23-2, stores={result[store_col].nunique()}")
+        expected_columns = [
+            store_col,
+            "月份",
+            "2024年",
+            "2025年",
+            "推薦人新綁定數 YoY",
+        ]
+
+        grouped = {sid: g for sid, g in result.groupby(store_col)}
+
+        for sid in all_store_ids:
+            g = grouped.get(sid)
+            out = g[expected_columns].sort_values("月份") if g is not None else pd.DataFrame(columns=expected_columns)
+
+            write_store_csv_with_fill(
+                store_id=sid,
+                output_dir=OUTPUT_DIR,
+                filename="23-2.推薦人新綁定數.csv",
+                df=out,
+                columns=expected_columns,
+            )
+
+        print(f"[OK] config=23-2, stores={len(all_store_ids)}")
         return
 
     # ===== 24-1 KPI card (referral performance summary) =====
@@ -422,18 +484,25 @@ def run_aggregation(config_key: str):
             ]
         ]
 
-        # --- Output ---
-        for _, row in result.iterrows():
-            sid = row[store_col]
-            store_dir = OUTPUT_DIR / str(sid)
-            store_dir.mkdir(parents=True, exist_ok=True)
-            row.to_frame().T.to_csv(
-                store_dir / "24-1.區間推薦人綁定人數_有線下交易資料品牌適用.csv",
-                index=False,
-                encoding="utf-8-sig",
+        # --- Output (structure-first, fill header if no data for store) ---
+        all_store_ids = get_all_store_ids(OUTPUT_DIR)
+
+        expected_columns = list(result.columns)
+        grouped = {sid: g for sid, g in result.groupby(store_col)}
+
+        for sid in all_store_ids:
+            g = grouped.get(sid)
+            out = g if g is not None else pd.DataFrame(columns=expected_columns)
+
+            write_store_csv_with_fill(
+                store_id=sid,
+                output_dir=OUTPUT_DIR,
+                filename="24-1.區間推薦人綁定人數_有線下交易資料品牌適用.csv",
+                df=out,
+                columns=expected_columns,
             )
 
-        print(f"[OK] config=24-1, stores={len(result)}")
+        print(f"[OK] config=24-1, stores={len(all_store_ids)}")
         return
 
     # ===== 24-2 Monthly referral conversion rate =====
@@ -517,14 +586,35 @@ def run_aggregation(config_key: str):
 
         result["推薦人綁定佔門市首購佔比"] = result["推薦人綁定佔門市首購佔比"].apply(_fmt_pct)
 
-        # --- Output per store ---
-        for sid, g in result.groupby(store_col):
-            out = g[[store_col, month_col, "門市首購人數", "推薦人綁定數", "推薦人綁定佔門市首購佔比"]].sort_values(month_col)
-            store_dir = OUTPUT_DIR / str(sid)
-            store_dir.mkdir(parents=True, exist_ok=True)
-            out.to_csv(store_dir / "24-2.門市推動推薦人綁定.csv", index=False, encoding="utf-8-sig")
+        # --- Output per store (using store universe and header fill) ---
+        all_store_ids = get_all_store_ids(OUTPUT_DIR)
 
-        print(f"[OK] config=24-2, stores={result[store_col].nunique()}")
+        expected_columns = [
+            store_col,
+            month_col,
+            "門市首購人數",
+            "推薦人綁定數",
+            "推薦人綁定佔門市首購佔比",
+        ]
+
+        grouped = {sid: g for sid, g in result.groupby(store_col)}
+
+        for sid in all_store_ids:
+            g = grouped.get(sid)
+            if g is not None:
+                out = g[expected_columns].sort_values(month_col)
+            else:
+                out = pd.DataFrame(columns=expected_columns)
+
+            write_store_csv_with_fill(
+                store_id=sid,
+                output_dir=OUTPUT_DIR,
+                filename="24-2.門市推動推薦人綁定.csv",
+                df=out,
+                columns=expected_columns,
+            )
+
+        print(f"[OK] config=24-2, stores={len(all_store_ids)}")
         return
 
     # ===== 25-1 Store structure (Top 5 by referral ratio) =====
@@ -606,26 +696,35 @@ def run_aggregation(config_key: str):
             result["推薦人綁定人數"] / result["門市首購人數"]
         ).where(result["門市首購人數"] != 0)
 
-        # --- Output per store (Top 5 per 商店序號) ---
-        store_count = 0
+        # --- Output per store (Top 5 per 商店序號, structure-first, fill header if no data for store) ---
+        all_store_ids = get_all_store_ids(OUTPUT_DIR)
+
+        expected_columns = [
+            store_col,
+            store_name_col,
+            "門市首購人數",
+            "推薦人綁定人數",
+            "推薦人綁定佔門市首購佔比",
+        ]
+
+        grouped = {}
         for sid, g in result.groupby(store_col):
             g = g.sort_values("推薦人綁定佔門市首購佔比", ascending=False).head(5)
             g["推薦人綁定佔門市首購佔比"] = g["推薦人綁定佔門市首購佔比"].apply(_fmt_pct_2)
+            grouped[sid] = g[expected_columns]
 
-            out = g[[
-                store_col,
-                store_name_col,
-                "門市首購人數",
-                "推薦人綁定人數",
-                "推薦人綁定佔門市首購佔比",
-            ]]
+        for sid in all_store_ids:
+            out = grouped.get(sid, pd.DataFrame(columns=expected_columns))
 
-            store_dir = OUTPUT_DIR / str(sid)
-            store_dir.mkdir(parents=True, exist_ok=True)
-            out.to_csv(store_dir / "25-1.TOP5績優門市.csv", index=False, encoding="utf-8-sig")
-            store_count += 1
+            write_store_csv_with_fill(
+                store_id=sid,
+                output_dir=OUTPUT_DIR,
+                filename="25-1.TOP5績優門市.csv",
+                df=out,
+                columns=expected_columns,
+            )
 
-        print(f"[OK] config=25-1, stores={store_count}")
+        print(f"[OK] config=25-1, stores={len(all_store_ids)}")
         return
 
     # ===== 25-2 Store structure (Bottom 5 by referral ratio) =====
@@ -718,26 +817,35 @@ def run_aggregation(config_key: str):
             result["推薦人綁定人數"] / result["門市首購人數"]
         ).where(result["門市首購人數"] != 0)
 
-        # --- Output per store (Bottom 5 per 商店序號) ---
-        store_count = 0
+        # --- Output per store (Bottom 5 per 商店序號, structure-first, fill header if no data for store) ---
+        all_store_ids = get_all_store_ids(OUTPUT_DIR)
+
+        expected_columns = [
+            store_col,
+            store_name_col,
+            "門市首購人數",
+            "推薦人綁定人數",
+            "推薦人綁定佔門市首購佔比",
+        ]
+
+        grouped = {}
         for sid, g in result.groupby(store_col):
             g = g.sort_values("推薦人綁定佔門市首購佔比", ascending=True).head(5)
             g["推薦人綁定佔門市首購佔比"] = g["推薦人綁定佔門市首購佔比"].apply(_fmt_pct_2)
+            grouped[sid] = g[expected_columns]
 
-            out = g[[
-                store_col,
-                store_name_col,
-                "門市首購人數",
-                "推薦人綁定人數",
-                "推薦人綁定佔門市首購佔比",
-            ]]
+        for sid in all_store_ids:
+            out = grouped.get(sid, pd.DataFrame(columns=expected_columns))
 
-            store_dir = OUTPUT_DIR / str(sid)
-            store_dir.mkdir(parents=True, exist_ok=True)
-            out.to_csv(store_dir / "25-2.BOTTOM5待加強門市.csv", index=False, encoding="utf-8-sig")
-            store_count += 1
+            write_store_csv_with_fill(
+                store_id=sid,
+                output_dir=OUTPUT_DIR,
+                filename="25-2.BOTTOM5待加強門市.csv",
+                df=out,
+                columns=expected_columns,
+            )
 
-        print(f"[OK] config=25-2, stores={store_count}")
+        print(f"[OK] config=25-2, stores={len(all_store_ids)}")
         return
 
     input_base = INPUT_DIR
