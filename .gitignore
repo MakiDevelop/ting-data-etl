@@ -4,7 +4,15 @@
 input/
 output/
 
-# storeId split folders or generated directories
+# allow directory placeholders
+!input/.gitkeep
+!output/.gitkeep
+!input/**/.gitkeep
+!output/**/.gitkeep
+
+# ==================================================
+# Generated numeric directories (e.g. storeId)
+# ==================================================
 [0-9]*/
 */[0-9]*/
 
