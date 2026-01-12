@@ -1,8 +1,8 @@
 # ==================================================
-# Data folders (NEVER commit real data)
+# Data folders (keep structure, ignore contents)
 # ==================================================
-input/
-output/
+input/*
+output/*
 
 # allow directory placeholders
 !input/.gitkeep
