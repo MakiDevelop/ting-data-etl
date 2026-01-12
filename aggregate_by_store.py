@@ -214,12 +214,25 @@ def run_aggregation(config_key: str):
         result["區間推薦人綁定人數 YoY"] = result["區間推薦人綁定人數 YoY"].apply(_fmt_pct)
         result["推薦人綁定率"] = result["推薦人綁定率"].apply(_fmt_pct)
 
-        result = result[[
-            "商店序號",
-            "區間推薦人綁定人數",
-            "區間推薦人綁定人數 YoY",
-            "推薦人綁定率",
-        ]]
+        # Rename the two raw fields to required output names
+        result = result.rename(
+            columns={
+                src_cum["value_col"]: "累計至今推薦人綁定人數",
+                src_mem["value_col"]: "總會員數",
+            }
+        )
+
+        # Select columns in the specified order (updated 2024-06: move 綁定率 before 累計/會員數)
+        result = result[
+            [
+                "商店序號",
+                "區間推薦人綁定人數",
+                "區間推薦人綁定人數 YoY",
+                "推薦人綁定率",
+                "累計至今推薦人綁定人數",
+                "總會員數",
+            ]
+        ]
 
         # --- Output ---
         for _, row in result.iterrows():
@@ -227,7 +240,7 @@ def run_aggregation(config_key: str):
             store_dir = OUTPUT_DIR / str(store_id)
             store_dir.mkdir(parents=True, exist_ok=True)
 
-            output_path = store_dir / "23-1.csv"
+            output_path = store_dir / "23-1.區間推薦人綁定人數_門市企業方案.csv"
             pd.DataFrame([row]).to_csv(
                 output_path, index=False, encoding="utf-8-sig"
             )
@@ -311,7 +324,7 @@ def run_aggregation(config_key: str):
             out = g[[store_col, "月份", "2024年", "2025年", "推薦人新綁定數 YoY"]].sort_values("月份")
             store_dir = OUTPUT_DIR / str(sid)
             store_dir.mkdir(parents=True, exist_ok=True)
-            out.to_csv(store_dir / "23-2.csv", index=False, encoding="utf-8-sig")
+            out.to_csv(store_dir / "23-2.推薦人新綁定數.csv", index=False, encoding="utf-8-sig")
 
         print(f"[OK] config=23-2, stores={result[store_col].nunique()}")
         return
@@ -397,12 +410,17 @@ def run_aggregation(config_key: str):
         result["區間推薦人綁定人數 YoY"] = result["區間推薦人綁定人數 YoY"].apply(_fmt_pct)
         result["推薦人綁定率"] = result["推薦人綁定率"].apply(_fmt_pct)
 
-        result = result[[
-            store_col,
-            "推薦人綁定率",
-            "區間推薦人綁定人數",
-            "區間推薦人綁定人數 YoY",
-        ]]
+        # Output columns: 商店序號, 推薦人綁定率, 區間推薦人綁定人數, 區間推薦人綁定人數 YoY, 累計至今推薦人綁定人數, 總會員數
+        result = result[
+            [
+                store_col,
+                "推薦人綁定率",
+                "區間推薦人綁定人數",
+                "區間推薦人綁定人數 YoY",
+                "累計至今推薦人綁定人數",
+                "總會員數",
+            ]
+        ]
 
         # --- Output ---
         for _, row in result.iterrows():
@@ -410,7 +428,7 @@ def run_aggregation(config_key: str):
             store_dir = OUTPUT_DIR / str(sid)
             store_dir.mkdir(parents=True, exist_ok=True)
             row.to_frame().T.to_csv(
-                store_dir / "24-1.csv",
+                store_dir / "24-1.區間推薦人綁定人數_有線下交易資料品牌適用.csv",
                 index=False,
                 encoding="utf-8-sig",
             )
@@ -492,19 +510,19 @@ def run_aggregation(config_key: str):
         result = df_fp.merge(ref_monthly, on=[store_col, month_col], how="left")
         result["推薦人綁定數"] = result["推薦人綁定數"].fillna(0)
 
-        # --- 推薦人綁定率 ---
-        result["推薦人綁定率"] = (
+        # --- 推薦人綁定佔門市首購佔比 ---
+        result["推薦人綁定佔門市首購佔比"] = (
             result["推薦人綁定數"] / result["門市首購人數"]
         ).where(result["門市首購人數"] != 0)
 
-        result["推薦人綁定率"] = result["推薦人綁定率"].apply(_fmt_pct)
+        result["推薦人綁定佔門市首購佔比"] = result["推薦人綁定佔門市首購佔比"].apply(_fmt_pct)
 
         # --- Output per store ---
         for sid, g in result.groupby(store_col):
-            out = g[[store_col, month_col, "門市首購人數", "推薦人綁定數", "推薦人綁定率"]].sort_values(month_col)
+            out = g[[store_col, month_col, "門市首購人數", "推薦人綁定數", "推薦人綁定佔門市首購佔比"]].sort_values(month_col)
             store_dir = OUTPUT_DIR / str(sid)
             store_dir.mkdir(parents=True, exist_ok=True)
-            out.to_csv(store_dir / "24-2.csv", index=False, encoding="utf-8-sig")
+            out.to_csv(store_dir / "24-2.門市推動推薦人綁定.csv", index=False, encoding="utf-8-sig")
 
         print(f"[OK] config=24-2, stores={result[store_col].nunique()}")
         return
@@ -583,28 +601,28 @@ def run_aggregation(config_key: str):
         )
         result["推薦人綁定人數"] = result["推薦人綁定人數"].fillna(0)
 
-        # --- 佔比 ---
-        result["佔比"] = (
+        # --- 推薦人綁定佔門市首購佔比 ---
+        result["推薦人綁定佔門市首購佔比"] = (
             result["推薦人綁定人數"] / result["門市首購人數"]
         ).where(result["門市首購人數"] != 0)
 
         # --- Output per store (Top 5 per 商店序號) ---
         store_count = 0
         for sid, g in result.groupby(store_col):
-            g = g.sort_values("佔比", ascending=False).head(5)
-            g["佔比"] = g["佔比"].apply(_fmt_pct_2)
+            g = g.sort_values("推薦人綁定佔門市首購佔比", ascending=False).head(5)
+            g["推薦人綁定佔門市首購佔比"] = g["推薦人綁定佔門市首購佔比"].apply(_fmt_pct_2)
 
             out = g[[
                 store_col,
                 store_name_col,
                 "門市首購人數",
                 "推薦人綁定人數",
-                "佔比",
+                "推薦人綁定佔門市首購佔比",
             ]]
 
             store_dir = OUTPUT_DIR / str(sid)
             store_dir.mkdir(parents=True, exist_ok=True)
-            out.to_csv(store_dir / "25-1.csv", index=False, encoding="utf-8-sig")
+            out.to_csv(store_dir / "25-1.TOP5績優門市.csv", index=False, encoding="utf-8-sig")
             store_count += 1
 
         print(f"[OK] config=25-1, stores={store_count}")
@@ -695,28 +713,28 @@ def run_aggregation(config_key: str):
         )
         result["推薦人綁定人數"] = result["推薦人綁定人數"].fillna(0)
 
-        # --- 佔比 ---
-        result["佔比"] = (
+        # --- 推薦人綁定佔門市首購佔比 ---
+        result["推薦人綁定佔門市首購佔比"] = (
             result["推薦人綁定人數"] / result["門市首購人數"]
         ).where(result["門市首購人數"] != 0)
 
         # --- Output per store (Bottom 5 per 商店序號) ---
         store_count = 0
         for sid, g in result.groupby(store_col):
-            g = g.sort_values("佔比", ascending=True).head(5)
-            g["佔比"] = g["佔比"].apply(_fmt_pct_2)
+            g = g.sort_values("推薦人綁定佔門市首購佔比", ascending=True).head(5)
+            g["推薦人綁定佔門市首購佔比"] = g["推薦人綁定佔門市首購佔比"].apply(_fmt_pct_2)
 
             out = g[[
                 store_col,
                 store_name_col,
                 "門市首購人數",
                 "推薦人綁定人數",
-                "佔比",
+                "推薦人綁定佔門市首購佔比",
             ]]
 
             store_dir = OUTPUT_DIR / str(sid)
             store_dir.mkdir(parents=True, exist_ok=True)
-            out.to_csv(store_dir / "25-2.csv", index=False, encoding="utf-8-sig")
+            out.to_csv(store_dir / "25-2.BOTTOM5待加強門市.csv", index=False, encoding="utf-8-sig")
             store_count += 1
 
         print(f"[OK] config=25-2, stores={store_count}")

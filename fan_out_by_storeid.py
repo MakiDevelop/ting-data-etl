@@ -32,7 +32,14 @@ def split_csv_file(path: str, name: str, output_dir: str, encoding: str):
         for row in reader:
             if store_idx >= len(row):
                 continue
-            store_id = row[store_idx].strip()
+            raw_store_id = row[store_idx].strip()
+
+            # normalize storeId: treat as string ID, never numeric
+            # e.g. "40316.0", "40316.00" -> "40316"
+            if raw_store_id.endswith(".0"):
+                store_id = raw_store_id.split(".")[0]
+            else:
+                store_id = raw_store_id
             if store_id == "":
                 continue
             store_dir = os.path.join(output_dir, store_id)
