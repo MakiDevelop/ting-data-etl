@@ -76,3 +76,4 @@ venv/
 *.log
 *.tmp
 .cache/
+/n8n/
