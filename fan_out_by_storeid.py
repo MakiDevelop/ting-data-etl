@@ -36,6 +36,7 @@ def split_csv_file(path: str, name: str, output_dir: str, encoding: str):
             return
 
         written_store_ids = set()
+        initialized_files = set()
 
         for row in reader:
             if store_idx >= len(row):
@@ -58,14 +59,18 @@ def split_csv_file(path: str, name: str, output_dir: str, encoding: str):
             store_dir = os.path.join(output_dir, store_id)
             os.makedirs(store_dir, exist_ok=True)
             out_path = os.path.join(store_dir, name)
-            needs_header = not os.path.exists(out_path) or os.path.getsize(out_path) == 0
-            with open(out_path, "a", newline="", encoding=encoding) as out_f:
-                writer = csv.writer(out_f)
-                if needs_header:
+            if out_path not in initialized_files:
+                with open(out_path, "w", newline="", encoding=encoding) as out_f:
+                    writer = csv.writer(out_f)
                     for r in prefix_rows:
                         writer.writerow(r)
                     writer.writerow(header)
-                writer.writerow(row)
+                    writer.writerow(row)
+                initialized_files.add(out_path)
+            else:
+                with open(out_path, "a", newline="", encoding=encoding) as out_f:
+                    writer = csv.writer(out_f)
+                    writer.writerow(row)
             written_store_ids.add(store_id)
 
         # After processing all rows, ensure header-only CSVs for existing stores without data rows

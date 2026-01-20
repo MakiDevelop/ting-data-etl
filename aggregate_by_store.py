@@ -1,6 +1,7 @@
 import argparse
 import pandas as pd
 from pathlib import Path
+import sys
 
 
 # ===============================
@@ -8,7 +9,9 @@ from pathlib import Path
 # ===============================
 INPUT_DIR = Path("./input")
 AGGREGATE_INPUT_DIR = INPUT_DIR / "aggregate"
+# Default output directory
 OUTPUT_DIR = Path("./output")
+
 
 
 # ===============================
@@ -24,21 +27,62 @@ def get_all_store_ids(output_dir: Path):
     )
 
 
-def write_store_csv_with_fill(
-    store_id: str,
+# ===============================
+# Helper: Read per-store input CSV from output/{store_id}/{filename}
+# ===============================
+def read_store_input_csv(
     output_dir: Path,
+    store_id: str,
     filename: str,
-    df: pd.DataFrame,
-    columns: list[str]
-):
+) -> pd.DataFrame | None:
     """
-    Write per-store CSV.
-    If df is empty, write header-only CSV with specified columns.
+    Read per-store CSV from output/{store_id}/{filename}.
+    Return None if file does not exist.
+    """
+    path = output_dir / str(store_id) / filename
+    if not path.exists():
+        return None
+    return pd.read_csv(path, dtype=str)
+
+
+import re
+
+def write_store_csv_with_fill(store_id, output_dir, filename, df, columns):
+    """
+    Write per-store CSV with header fill.
+    FINAL safeguard: remove pandas duplicate column suffixes like '.1', '.2', ...
     """
     store_dir = output_dir / str(store_id)
     store_dir.mkdir(parents=True, exist_ok=True)
 
     output_path = store_dir / filename
+
+    def _normalize_headers(cols):
+        normalized = []
+        seen = {}
+
+        for c in cols:
+            c = str(c)
+            base = re.sub(r"\.\d+$", "", c)
+
+            # 第一次出現：直接使用 base
+            if base not in seen:
+                seen[base] = 1
+                normalized.append(base)
+            else:
+                # 已出現過：仍保留欄位數量，但強制回到 base
+                # （避免 pandas Length mismatch，也避免 .1 外洩）
+                normalized.append(base)
+
+        return normalized
+
+    # ===== FINAL HEADER NORMALIZATION (出口層，唯一保證點) =====
+    if df is not None:
+        df = df.copy()
+        df.columns = _normalize_headers(list(df.columns))
+
+    if columns is not None:
+        columns = _normalize_headers(list(columns))
 
     if df is None or df.empty:
         empty_df = pd.DataFrame(columns=columns)
@@ -46,10 +90,157 @@ def write_store_csv_with_fill(
     else:
         df.to_csv(output_path, index=False, encoding="utf-8-sig")
 
+def add_group_ratio(
+    df: pd.DataFrame,
+    group_col: str,
+    value_col: str,
+    target_col: str,
+    *,
+    fmt: str | None = None,
+) -> pd.DataFrame:
+    """
+    Compute ratio per group within a single DataFrame.
+    ratio = sum(value_col per group) / sum(value_col total)
+    """
+    if df is None or df.empty:
+        df[target_col] = ""
+        return df
+
+    values = pd.to_numeric(df[value_col], errors="coerce").fillna(0)
+    total = values.sum()
+
+    if total == 0:
+        df[target_col] = ""
+        return df
+
+    group_sum = (
+        df.groupby(group_col)[value_col]
+        .transform("sum")
+        .astype(float)
+    )
+
+    ratio = group_sum / total
+
+    if fmt == "percent":
+        df[target_col] = ratio.apply(
+            lambda x: "" if pd.isna(x) else f"{x * 100:.2f}%"
+        )
+    else:
+        df[target_col] = ratio
+
+    return df
+
+# ===============================
+# Helper: Add ratio column for a single DataFrame (for 7-1~9-2, 27)
+# ===============================
+def add_column_ratio(
+    df: pd.DataFrame,
+    source_col: str,
+    target_col: str,
+    *,
+    fmt: str | None = None,
+) -> pd.DataFrame:
+    """
+    Add a ratio column for a source column in a single DataFrame.
+    ratio = value / total
+    """
+    if df is None or df.empty:
+        df[target_col] = ""
+        return df
+    values = pd.to_numeric(df[source_col], errors="coerce").fillna(0)
+    total = values.sum()
+    if total == 0:
+        df[target_col] = ""
+        return df
+    ratio = values / total
+    if fmt == "percent":
+        df[target_col] = ratio.apply(lambda x: "" if pd.isna(x) else f"{x * 100:.2f}%")
+    elif fmt == "percent_int":
+        df[target_col] = ratio.apply(lambda x: "" if pd.isna(x) else f"{x * 100:.0f}%")
+    else:
+        df[target_col] = ratio
+    return df
+
 # ===============================
 # Configs: 六個需求（以編號作為 key）
 # ===============================
 CONFIGS = {
+    "27": {
+        "input_file": "27.OMO會員貢獻.csv",
+        "output_file": "27.OMO會員貢獻.csv",
+        "ratios": [
+            {"source_col": "購買會員數", "target_col": "購買會員數.1", "fmt": "percent_int", "rename_to": "購買會員數"},
+            {"source_col": "總業績", "target_col": "總業績.1", "fmt": "percent_int", "rename_to": "總業績"},
+        ],
+    },
+    "4": {
+        "input_subdir": "aggregate",
+        "input_file": "4.跨裝置appvsweb概況.csv",
+        "store_col": "商店序號",
+        "value_col_amount": "訂單金額",
+        "ratio_target_col_amount": "業績佔比",
+        "value_col_session": "工作階段數",
+        "ratio_target_col_session": "流量佔比",
+        "output_file": "4.跨裝置appvsweb概況.csv",
+    },
+    # 7-1～9-2: 直欄佔比
+    "7-1": {
+        "input_file": "7-1.流量渠道總覽.csv",
+        "output_file": "7-1.流量渠道總覽.csv",
+        "ratios": [
+            {"source_col": "工作階段數", "target_col": "工作階段數佔比"},
+            {"source_col": "線上訂單金額", "target_col": "線上訂單金額佔比"},
+            {"source_col": "線上註冊數", "target_col": "線上註冊數佔比"},
+        ],
+    },
+    "7-2": {
+        "input_file": "7-2.流量渠道總覽.csv",
+        "output_file": "7-2.流量渠道總覽.csv",
+        "ratios": [
+            {"source_col": "工作階段數", "target_col": "工作階段數佔比"},
+            {"source_col": "線上訂單金額", "target_col": "線上訂單金額佔比"},
+            {"source_col": "門市訂單金額", "target_col": "門市訂單金額佔比"},
+            {"source_col": "線上註冊數", "target_col": "線上註冊數佔比"},  # 覆蓋原有欄位（不帶空格）
+        ],
+    },
+    "8-1": {
+        "input_file": "8-1.廣告渠道分析.csv",
+        "output_file": "8-1.廣告渠道分析.csv",
+        "ratios": [
+            {"source_col": "工作階段數", "target_col": "工作階段數佔比"},
+            {"source_col": "線上訂單金額", "target_col": "線上訂單金額佔比"},
+            {"source_col": "註冊會員數", "target_col": "線上註冊數佔比"},
+        ],
+    },
+    "9-1": {
+        "input_file": "9-1.自媒體渠道分析.csv",
+        "output_file": "9-1.自媒體渠道分析.csv",
+        "ratios": [
+            {"source_col": "工作階段數", "target_col": "工作階段數佔比"},
+            {"source_col": "線上訂單金額", "target_col": "線上訂單金額佔比"},
+            {"source_col": "線上註冊會員數", "target_col": "線上註冊數佔比"},
+        ],
+    },
+    "8-2": {
+        "input_file": "8-2.廣告渠道分析.csv",
+        "output_file": "8-2.廣告渠道分析.csv",
+        "ratios": [
+            {"source_col": "工作階段數", "target_col": "工作階段數佔比"},
+            {"source_col": "線上訂單金額", "target_col": "線上訂單金額佔比"},
+            {"source_col": "[指定區間] 門市訂單金額", "target_col": "門市訂單金額佔比"},
+            {"source_col": "線上註冊會員數", "target_col": "線上註冊會員數佔比"},
+        ],
+    },
+    "9-2": {
+        "input_file": "9-2.自媒體渠道分析.csv",
+        "output_file": "9-2.自媒體渠道分析.csv",
+        "ratios": [
+            {"source_col": "工作階段數", "target_col": "工作階段數佔比"},
+            {"source_col": "線上訂單金額", "target_col": "線上訂單金額佔比"},
+            {"source_col": "[指定區間] 門市訂單金額", "target_col": "門市訂單金額佔比"},
+            {"source_col": "線上註冊會員數", "target_col": "線上註冊會員數佔比"},
+        ],
+    },
     # 23-1：指定月份業績加總 (final, fixed-year logic and outputs)
     "23-1": {
         "input_subdir": "aggregate",
@@ -136,11 +327,180 @@ CONFIGS = {
 }
 
 
-def run_aggregation(config_key: str):
+def run_aggregation(config_key: str, ting_test_mode: bool = False, output_dir_name: str = "output/ting-test"):
     if config_key not in CONFIGS:
         raise ValueError(f"Config '{config_key}' not found")
 
     cfg = CONFIGS[config_key]
+    # ===== 4: 跨裝置 app vs web 概況（雙欄位直欄佔比）=====
+    if config_key == "4":
+        # 當 ting-test 模式啟用時，輸入從 output/{store_id}/ 讀取，輸出到指定目錄
+        if ting_test_mode:
+            input_dir = Path("./output")
+            output_dir = Path(f"./{output_dir_name}")
+        else:
+            input_dir = OUTPUT_DIR
+            output_dir = OUTPUT_DIR
+
+        all_store_ids = get_all_store_ids(input_dir)
+
+        expected_columns = None
+
+        for sid in all_store_ids:
+            g = read_store_input_csv(
+                output_dir=input_dir,
+                store_id=sid,
+                filename=cfg["input_file"],
+            )
+
+            if g is not None and not g.empty:
+                g = g.copy()
+                g.columns = g.columns.astype(str).str.strip()
+
+                # 訂單金額 → 業績佔比
+                if cfg["value_col_amount"] in g.columns:
+                    g[cfg["value_col_amount"]] = (
+                        g[cfg["value_col_amount"]]
+                        .astype(str)
+                        .str.replace(",", "", regex=False)
+                        .str.strip()
+                    )
+                    g = add_column_ratio(
+                        g,
+                        source_col=cfg["value_col_amount"],
+                        target_col=cfg["ratio_target_col_amount"],
+                        fmt="percent",
+                    )
+
+                # 工作階段數 → 流量佔比
+                if cfg["value_col_session"] in g.columns:
+                    g[cfg["value_col_session"]] = (
+                        g[cfg["value_col_session"]]
+                        .astype(str)
+                        .str.replace(",", "", regex=False)
+                        .str.strip()
+                    )
+                    g = add_column_ratio(
+                        g,
+                        source_col=cfg["value_col_session"],
+                        target_col=cfg["ratio_target_col_session"],
+                        fmt="percent",
+                    )
+
+                if expected_columns is None:
+                    expected_columns = list(g.columns)
+
+                out_df = g
+            else:
+                if expected_columns is None:
+                    expected_columns = [
+                        cfg["ratio_target_col_amount"],
+                        cfg["ratio_target_col_session"],
+                    ]
+                out_df = pd.DataFrame(columns=expected_columns)
+
+            # 寫入輸出檔案
+            write_store_csv_with_fill(
+                store_id=sid,
+                output_dir=output_dir,
+                filename=cfg["output_file"],
+                df=out_df,
+                columns=expected_columns,
+            )
+
+        print(f"[OK] config=4, stores={len(all_store_ids)}")
+        return
+
+    # ===== 7-1, 7-2, 8-1, 8-2, 9-1, 9-2, 27: 多欄位佔比 =====
+    if config_key in ["7-1", "7-2", "8-1", "8-2", "9-1", "9-2", "27"]:
+        if ting_test_mode:
+            input_dir = Path("./output")
+            output_dir = Path(f"./{output_dir_name}")
+        else:
+            input_dir = OUTPUT_DIR
+            output_dir = OUTPUT_DIR
+
+        all_store_ids = get_all_store_ids(input_dir)
+        expected_columns = None
+
+        for sid in all_store_ids:
+            g = read_store_input_csv(
+                output_dir=input_dir,
+                store_id=sid,
+                filename=cfg["input_file"],
+            )
+
+            if g is not None and not g.empty:
+                g = g.copy()
+                g.columns = g.columns.astype(str).str.strip()
+
+                # 處理多個佔比欄位
+                for ratio_cfg in cfg["ratios"]:
+                    source_col = ratio_cfg["source_col"]
+                    target_col = ratio_cfg["target_col"]
+
+                    if source_col in g.columns:
+                        # 清理數據（移除千分位、百分號等）
+                        g[source_col] = (
+                            g[source_col]
+                            .astype(str)
+                            .str.lstrip("'")
+                            .str.replace(",", "", regex=False)
+                            .str.replace("%", "", regex=False)
+                            .str.strip()
+                        )
+                        # 計算佔比
+                        fmt = ratio_cfg.get("fmt", "percent")  # 從配置中取得格式，默認為 "percent"
+                        g = add_column_ratio(
+                            g,
+                            source_col=source_col,
+                            target_col=target_col,
+                            fmt=fmt,
+                        )
+
+                # 處理欄位重命名（for config 27）
+                if config_key == "27":
+                    rename_map = {}
+                    for ratio_cfg in cfg["ratios"]:
+                        if "rename_to" in ratio_cfg:
+                            rename_map[ratio_cfg["target_col"]] = ratio_cfg["rename_to"]
+                    if rename_map:
+                        g = g.rename(columns=rename_map)
+
+                if expected_columns is None:
+                    expected_columns = list(g.columns)
+
+                out_df = g
+            else:
+                if expected_columns is None:
+                    # 對於 config 27，使用 rename_to 作為欄位名稱
+                    if config_key == "27":
+                        expected_columns = [r.get("rename_to", r["target_col"]) for r in cfg["ratios"]]
+                    else:
+                        expected_columns = [r["target_col"] for r in cfg["ratios"]]
+                out_df = pd.DataFrame(columns=expected_columns)
+
+            # 對於 config 27，直接用 pandas 寫入（允許重複欄位名稱）
+            if config_key == "27":
+                store_dir = output_dir / str(sid)
+                store_dir.mkdir(parents=True, exist_ok=True)
+                output_path = store_dir / cfg["output_file"]
+                if out_df is None or out_df.empty:
+                    empty_df = pd.DataFrame(columns=expected_columns)
+                    empty_df.to_csv(output_path, index=False, encoding="utf-8-sig")
+                else:
+                    out_df.to_csv(output_path, index=False, encoding="utf-8-sig")
+            else:
+                write_store_csv_with_fill(
+                    store_id=sid,
+                    output_dir=output_dir,
+                    filename=cfg["output_file"],
+                    df=out_df,
+                    columns=expected_columns,
+                )
+
+        print(f"[OK] config={config_key}, stores={len(all_store_ids)}")
+        return
 
     # ===== 23-1 KPI card (fixed full-year logic) =====
     if config_key == "23-1":
@@ -848,6 +1208,75 @@ def run_aggregation(config_key: str):
         print(f"[OK] config=25-2, stores={len(all_store_ids)}")
         return
 
+    # ===== 7-1～9-2, 27: Per-store calculation from output/{store_id}/{filename} =====
+    if config_key in {"7-1", "7-2", "8-1", "9-1", "9-2", "27"}:
+        # Only use OUTPUT_DIR and per-store file, do not use input/aggregate
+        all_store_ids = get_all_store_ids(OUTPUT_DIR)
+
+        expected_columns = None
+
+        for sid in all_store_ids:
+            g = read_store_input_csv(
+                output_dir=OUTPUT_DIR,
+                store_id=sid,
+                filename=cfg["input_file"],
+            )
+
+            if g is not None:
+                g.columns = g.columns.astype(str).str.strip()
+
+                # 僅針對 7-1～9-2 清洗直欄佔比來源欄位（避免千分位或字串導致 total=0）
+                if config_key in {"7-1", "7-2", "8-1", "9-1", "9-2"}:
+                    # Resolve source column for 流量佔比（優先本期，其次舊欄位）
+                    src = cfg["ratio_source_col"]
+                    if src not in g.columns:
+                        fallback_cols = ["工作階段數", "Sessions", "session_count"]
+                        for c in fallback_cols:
+                            if c in g.columns:
+                                src = c
+                                break
+
+                    if src in g.columns:
+                        g[src] = (
+                            g[src]
+                            .astype(str)
+                            .str.lstrip("'")             # 移除 Excel 常見的前置單引號
+                            .str.replace(",", "", regex=False)
+                            .str.replace("%", "", regex=False)
+                            .str.strip()
+                        )
+                else:
+                    src = cfg["ratio_source_col"]
+
+                g = add_column_ratio(
+                    g,
+                    source_col=src,
+                    target_col=cfg["ratio_target_col"],
+                    fmt="percent",
+                )
+
+                if expected_columns is None:
+                    expected_columns = list(g.columns)
+
+                out_df = g
+            else:
+                if expected_columns is None:
+                    expected_columns = [cfg["ratio_target_col"]]
+                out_df = pd.DataFrame(columns=expected_columns)
+
+            write_store_csv_with_fill(
+                store_id=sid,
+                output_dir=OUTPUT_DIR,
+                filename=cfg["output_file"],
+                df=out_df,
+                columns=expected_columns,
+            )
+        print(f"[OK] config={config_key}, stores={len(all_store_ids)}")
+        return
+
+
+
+    # default: legacy for 23-25
     input_base = INPUT_DIR
     if cfg.get("input_subdir"):
         input_base = INPUT_DIR / cfg["input_subdir"]
@@ -891,9 +1320,23 @@ def run_aggregation(config_key: str):
 def main():
     parser = argparse.ArgumentParser(description="Aggregate by store with config key")
     parser.add_argument("--config", required=True, help="config key, e.g. 23-1")
+    parser.add_argument(
+        "--ting-test",
+        action="store_true",
+        help="Enable test mode: read from output/{store_id}/, write to specified output directory",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="output/ting-test",
+        help="Output directory path (default: output/ting-test)",
+    )
     args = parser.parse_args()
 
-    run_aggregation(args.config)
+    global OUTPUT_DIR
+    if args.ting_test:
+        OUTPUT_DIR = Path(f"./{args.output_dir}")
+
+    run_aggregation(args.config, ting_test_mode=args.ting_test, output_dir_name=args.output_dir)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,8 @@ output/**/*
 *.json
 *.jsonl
 *.ndjson
+*.db
+*.db-journal
 
 
 # ==================================================
@@ -77,3 +79,16 @@ venv/
 *.tmp
 .cache/
 /n8n/
+*.zip
+*.rar
+*.7z
+
+
+# ==================================================
+# Sensitive files (contain API credentials)
+# ==================================================
+looker_query_inspector.py
+looker_slow_downloader.py
+looker_stable_downloader.py
+looker_custom_downloader.py
+WORKLOG_*.md
