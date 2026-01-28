@@ -45,6 +45,15 @@ def sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
 
 
+def _cell_to_str(v) -> str:
+    """將 Excel cell 值轉為字串，處理數字型電話號碼等情境。"""
+    if v is None:
+        return ""
+    if isinstance(v, float) and v == int(v):
+        return str(int(v))
+    return str(v).strip()
+
+
 def read_rows(filepath: Path):
     """讀取 CSV / XLS / XLSX，yield dict with keys: ph, MemberCode, em."""
     ext = filepath.suffix.lower()
@@ -63,7 +72,7 @@ def read_rows(filepath: Path):
         rows_iter = ws.iter_rows(values_only=True)
         headers = [str(h).strip() if h else "" for h in next(rows_iter)]
         for row in rows_iter:
-            yield dict(zip(headers, [str(v) if v is not None else "" for v in row]))
+            yield dict(zip(headers, [_cell_to_str(v) for v in row]))
         wb.close()
 
     elif ext == ".xls":
@@ -74,7 +83,7 @@ def read_rows(filepath: Path):
         headers = [str(ws.cell_value(0, c)).strip() for c in range(ws.ncols)]
         for r in range(1, ws.nrows):
             yield dict(
-                zip(headers, [str(ws.cell_value(r, c)) for c in range(ws.ncols)])
+                zip(headers, [_cell_to_str(ws.cell_value(r, c)) for c in range(ws.ncols)])
             )
 
 
@@ -268,11 +277,9 @@ class App(ctk.CTk):
                 ("Excel", "*.xls *.xlsx"),
             ],
         )
-        for p in paths:
-            fp = Path(p)
-            if fp not in self._files:
-                self._files.append(fp)
-        self._refresh_file_list()
+        if paths:
+            self._files = [Path(p) for p in paths]
+            self._refresh_file_list()
 
     def _remove_file(self, filepath: Path):
         if filepath in self._files:
