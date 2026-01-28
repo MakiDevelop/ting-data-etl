@@ -55,9 +55,9 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    out1_path = OUTPUT_DIR / "中繼1_匯進名單管理.csv"
-    out2_path = OUTPUT_DIR / "中繼2_投廣名單.csv"
-    out3_path = OUTPUT_DIR / "中繼2_投廣名單_SHA256.csv"
+    out1_path = OUTPUT_DIR / "匯進名單管理.csv"
+    out2_path = OUTPUT_DIR / "投廣名單.csv"
+    out3_path = OUTPUT_DIR / "投廣名單_SHA256.csv"
 
     stats = {
         "total": 0,
